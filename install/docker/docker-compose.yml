@@ -25,21 +25,17 @@ services:
     restart: unless-stopped
 
     # ---- persistent volumes -------------------------------------------------
-    # Host paths come from AGENT_STATE_DIR / AGENT_CONFIG_DIR in .env.
-    # Docker Compose does NOT expand ~ in volume source paths, so we use
-    # the $HOME variable which is always set in the shell that runs compose.
+    # All qmd state (SQLite index, model files, collection YAML config) lives
+    # under ${AGENT_STATE_BASE}/qmd on the host, mounted as /data inside the
+    # container.  XDG dirs point into /data so qmd writes to:
+    #   cache  → /data/cache/qmd  (index.sqlite, downloaded models)
+    #   config → /data/config/qmd (collection YAML definitions)
+    # Docker Compose does NOT expand ~ in volume source paths; use $HOME or
+    # an absolute path in .env.
     volumes:
-      # SQLite index + downloaded LLM model files
       - type: bind
-        source: ${AGENT_STATE_DIR}/qmd
-        target: /data/cache/qmd
-        bind:
-          create_host_path: true
-
-      # Collection YAML config files (qmd collection add … writes here)
-      - type: bind
-        source: ${AGENT_CONFIG_DIR}/qmd
-        target: /data/config/qmd
+        source: ${AGENT_STATE_BASE:-~/agent-phi/state}/qmd
+        target: /data
         bind:
           create_host_path: true
 
