@@ -1,0 +1,84 @@
+# =============================================================================
+# QMD — Docker Compose
+#
+# All configurable options live in .env (copy from .env in this directory).
+#
+# Usage:
+#   cd install/docker
+#   cp .env .env          # already done — edit values as needed
+#   docker compose up -d
+#
+# Peer containers (paperclip, openfang, …) that declare the same external
+# network can reach QMD at:  http://qmd:8181/mcp
+# =============================================================================
+
+name: agent-phi-qmd
+
+services:
+  qmd:
+    build:
+      context: ../..          # repo root (where Dockerfile reads source from)
+      dockerfile: install/docker/Dockerfile
+
+    container_name: qmd
+
+    restart: unless-stopped
+
+    # ---- persistent volumes -------------------------------------------------
+    # Host paths come from AGENT_STATE_DIR / AGENT_CONFIG_DIR in .env.
+    # Docker Compose does NOT expand ~ in volume source paths, so we use
+    # the $HOME variable which is always set in the shell that runs compose.
+    volumes:
+      # SQLite index + downloaded LLM model files
+      - type: bind
+        source: ${AGENT_STATE_DIR}/qmd
+        target: /data/cache/qmd
+        bind:
+          create_host_path: true
+
+      # Collection YAML config files (qmd collection add … writes here)
+      - type: bind
+        source: ${AGENT_CONFIG_DIR}/qmd
+        target: /data/config/qmd
+        bind:
+          create_host_path: true
+
+    # ---- port mapping -------------------------------------------------------
+    # QMD_PORT (default 8181) exposes the MCP HTTP server on the host.
+    # Remove / comment out the ports section if host-level access is not needed
+    # (containers on AGENT_NETWORK can still reach qmd:8181 internally).
+    ports:
+      - "${QMD_PORT:-8181}:8181"
+
+    # ---- environment --------------------------------------------------------
+    environment:
+      # Map XDG dirs to the volume mount targets set in the Dockerfile
+      XDG_CACHE_HOME: /data/cache
+      XDG_CONFIG_HOME: /data/config
+      # Bind on all interfaces so peer containers can connect
+      QMD_HTTP_HOST: "0.0.0.0"
+
+    # ---- shared agent network -----------------------------------------------
+    networks:
+      - agent-net
+
+# =============================================================================
+# Shared external network
+#
+# This network is declared as *external* so it persists across individual
+# compose projects and can be joined by other agent services (paperclip,
+# openfang, etc.) using the same network name.
+#
+# Create it once before the first `docker compose up`:
+#   docker network create ${AGENT_NETWORK:-agent-phi}
+#
+# Other compose files join it with:
+#   networks:
+#     agent-net:
+#       external: true
+#       name: ${AGENT_NETWORK:-agent-phi}
+# =============================================================================
+networks:
+  agent-net:
+    external: true
+    name: ${AGENT_NETWORK:-agent-phi}

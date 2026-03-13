@@ -538,7 +538,8 @@ export type HttpServerHandle = {
 
 /**
  * Start MCP server over Streamable HTTP (JSON responses, no SSE).
- * Binds to localhost only. Returns a handle for shutdown and port discovery.
+ * Binds to localhost by default; set QMD_HTTP_HOST=0.0.0.0 to bind all interfaces (e.g. in Docker).
+ * Returns a handle for shutdown and port discovery.
  */
 export async function startMcpHttpServer(port: number, options?: { quiet?: boolean }): Promise<HttpServerHandle> {
   const store = await createStore({ dbPath: getDefaultDbPath() });
@@ -769,7 +770,7 @@ export async function startMcpHttpServer(port: number, options?: { quiet?: boole
 
   await new Promise<void>((resolve, reject) => {
     httpServer.on("error", reject);
-    httpServer.listen(port, "localhost", () => resolve());
+    httpServer.listen(port, process.env.QMD_HTTP_HOST ?? "localhost", () => resolve());
   });
 
   const actualPort = (httpServer.address() as import("net").AddressInfo).port;
