@@ -26,6 +26,16 @@ import {
   type ExpandedQuery,
   type IndexStatus,
 } from "../index.js";
+import {
+  hashContent,
+  extractTitle,
+  insertContent,
+  insertDocument,
+  handelize,
+  upsertStoreCollection,
+} from "../store.js";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 // =============================================================================
 // Types for structured content
@@ -672,6 +682,89 @@ export async function startMcpHttpServer(port: number, options?: { quiet?: boole
         nodeRes.writeHead(200, { "Content-Type": "application/json" });
         nodeRes.end(JSON.stringify({ results: formatted }));
         log(`${ts()} POST /query ${params.searches.length} queries (${Date.now() - reqStart}ms)`);
+        return;
+      }
+
+      // ---------------------------------------------------------------------------
+      // REST endpoint: POST /ingest — accept a memory fragment from OpenFang and
+      // index it immediately for BM25 search. Vector search requires `qmd embed`.
+      // ---------------------------------------------------------------------------
+      if (pathname === "/ingest" && nodeReq.method === "POST") {
+        const rawBody = await collectBody(nodeReq);
+        let parsed: {
+          collection?: string;
+          path?: string;
+          content?: string;
+          created_at?: string;
+        };
+
+        try {
+          parsed = JSON.parse(rawBody);
+        } catch {
+          nodeRes.writeHead(400, { "Content-Type": "application/json" });
+          nodeRes.end(JSON.stringify({ error: "Invalid JSON body" }));
+          return;
+        }
+
+        const { collection, path, content, created_at } = parsed;
+
+        if (!path || !content) {
+          nodeRes.writeHead(400, { "Content-Type": "application/json" });
+          nodeRes.end(JSON.stringify({ error: "Missing required fields: path, content" }));
+          return;
+        }
+
+        const collectionName = collection ?? "openfang-memories";
+        const now = new Date().toISOString();
+
+        // Base directory for OpenFang memory files inside QMD's data volume.
+        const memoriesDir = join(
+          process.env.QMD_DATA_DIR ?? process.env.XDG_CACHE_HOME ?? "/data",
+          "memories"
+        );
+
+        const db = store.internal.db;
+
+        // Auto-register the collection on first use so `qmd embed` can re-embed it later.
+        const existing = db
+          .prepare(`SELECT 1 FROM store_collections WHERE name = ?`)
+          .get(collectionName);
+        if (!existing) {
+          mkdirSync(memoriesDir, { recursive: true });
+          upsertStoreCollection(db, collectionName, {
+            path: memoriesDir,
+            pattern: "**/*.md",
+          });
+          log(`${ts()} /ingest auto-registered collection "${collectionName}" at ${memoriesDir}`);
+        }
+
+        // Write the markdown file to disk so it survives a QMD restart and can
+        // be picked up by `qmd embed` to generate vector embeddings.
+        const filePath = join(memoriesDir, String(path));
+        mkdirSync(dirname(filePath), { recursive: true });
+        writeFileSync(filePath, String(content), "utf-8");
+
+        // Index the content in SQLite. The documents_ai trigger fires automatically
+        // on INSERT INTO documents, updating documents_fts (FTS5) for immediate
+        // BM25 keyword search without needing a `qmd embed` run.
+        const hash = await hashContent(String(content));
+        const title = extractTitle(String(content), String(path));
+        const safeCreatedAt = created_at ?? now;
+
+        insertContent(db, hash, String(content), safeCreatedAt);
+        insertDocument(
+          db,
+          collectionName,
+          handelize(String(path)),
+          title,
+          hash,
+          safeCreatedAt,
+          now,
+        );
+
+        nodeRes.writeHead(200, { "Content-Type": "application/json" });
+        nodeRes.end(JSON.stringify({ ok: true }));
+        log(`${ts()} POST /ingest ${collectionName}/${path} (${Date.now() - reqStart}ms)`);
         return;
       }
 
