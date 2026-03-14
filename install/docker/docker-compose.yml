@@ -1,11 +1,11 @@
 # =============================================================================
 # QMD — Docker Compose
 #
-# All configurable options live in .env (copy from .env in this directory).
+# All configurable options live in .env (copy from .env.example).
 #
 # Usage:
 #   cd install/docker
-#   cp .env .env          # already done — edit values as needed
+#   cp .env.example .env  # edit AGENT_BASE and AGENT_NETWORK
 #   docker compose up -d
 #
 # Peer containers (paperclip, openfang, …) that declare the same external
@@ -26,15 +26,15 @@ services:
 
     # ---- persistent volumes -------------------------------------------------
     # All qmd state (SQLite index, model files, collection YAML config) lives
-    # under ${AGENT_STATE_BASE}/qmd on the host, mounted as /data inside the
+    # under ${AGENT_BASE}/state/qmd on the host, mounted as /data inside the
     # container.  XDG dirs point into /data so qmd writes to:
     #   cache  → /data/cache/qmd  (index.sqlite, downloaded models)
     #   config → /data/config/qmd (collection YAML definitions)
-    # Docker Compose does NOT expand ~ in volume source paths; use $HOME or
-    # an absolute path in .env.
+    # Docker Compose does NOT expand ~ in volume source paths; use an
+    # absolute path in .env.
     volumes:
       - type: bind
-        source: ${AGENT_STATE_BASE:-~/agent-phi/state}/qmd
+        source: ${AGENT_BASE:-~/agent-phi}/state/qmd
         target: /data
         bind:
           create_host_path: true
