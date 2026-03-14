@@ -19,6 +19,7 @@ services:
     build:
       context: ../..          # repo root (where Dockerfile reads source from)
       dockerfile: install/docker/Dockerfile
+    image: qmd:local
 
     container_name: qmd
 
